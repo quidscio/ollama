@@ -32,8 +32,34 @@ jobs:
         run: |
           echo GOFLAGS="'-ldflags=-w -s \"-X=github.com/ollama/ollama/version.Version=${GITHUB_REF_NAME#v}\" \"-X=github.com/ollama/ollama/server.mode=release\"'" >>$GITHUB_OUTPUT
 
-  windows-depends:
+  preflight-windows-app:
+    runs-on: windows-2022
+    environment: release
     needs: setup-environment
+    env:
+      GOFLAGS: ${{ needs.setup-environment.outputs.GOFLAGS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: |
+          $env:VERSION='${{ github.ref_name }}' -Replace "v(.*)", '$1'
+          & .\scripts\build_windows.ps1 app
+        env:
+          VCToolsRedistDir: stub
+      - name: Verify app artifact
+        run: |
+          $app = "dist\\windows-ollama-app-amd64.exe"
+          if (!(Test-Path -Path $app)) {
+            Write-Error "Missing app artifact: $app"
+          }
+
+  windows-depends:
+    needs: [setup-environment, preflight-windows-app]
     strategy:
       matrix:
         os: [windows]
@@ -124,6 +150,12 @@ jobs:
           cmake --install build --component "${{ startsWith(matrix.preset, 'CUDA ') && 'CUDA' || startsWith(matrix.preset, 'ROCm ') && 'HIP' || 'CPU' }}" --strip --parallel 8
         env:
           CMAKE_GENERATOR: Ninja
+      - name: Preflight depends artifact
+        run: |
+          $files = Get-ChildItem -Path dist -Recurse -File -ErrorAction SilentlyContinue
+          if (!$files) {
+            Write-Error "No files produced under dist/ for preset ${{ matrix.preset }}"
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: depends-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.preset }}
@@ -136,7 +168,7 @@ jobs:
         arch: [amd64]
     runs-on: ${{ (matrix.arch == 'arm64' && format('{0}-{1}', matrix.os, matrix.arch)) || (matrix.os == 'windows' && 'windows-2022') || (matrix.os == 'linux' && 'ubuntu-latest-m') || matrix.os }}
     environment: release
-    needs: [setup-environment]
+    needs: [setup-environment, preflight-windows-app]
     env:
       GOFLAGS: ${{ needs.setup-environment.outputs.GOFLAGS }}
     steps:
@@ -156,6 +188,12 @@ jobs:
           node-version: "20"
       - run: |
           go build -o dist/${{ matrix.os }}-${{ matrix.arch }}/ .
+      - name: Preflight CLI artifact
+        run: |
+          $cli = "dist\\${{ matrix.os }}-${{ matrix.arch }}\\ollama.exe"
+          if (!(Test-Path -Path $cli)) {
+            Write-Error "Missing CLI artifact: $cli"
+          }
       - if: matrix.arch == 'arm64'
         run: |
           Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.arm64.exe" -OutFile "dist\windows-arm64\vc_redist.arm64.exe"
@@ -164,11 +202,18 @@ jobs:
           & .\scripts\build_windows.ps1 app
         env:
           VCToolsRedistDir: stub
+      - name: Preflight app artifact
+        run: |
+          $app = "dist\\windows-ollama-app-${{ matrix.arch }}.exe"
+          if (!(Test-Path -Path $app)) {
+            Write-Error "Missing app artifact: $app"
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: build-${{ matrix.os }}-${{ matrix.arch }}
           path: |
             dist\${{ matrix.os }}-${{ matrix.arch }}\*.exe
+            dist\windows-ollama-app-${{ matrix.arch }}.exe
             dist\${{ matrix.os }}-${{ matrix.arch }}-app.exe
 
   windows-package:
@@ -187,6 +232,21 @@ jobs:
           pattern: depends-windows-amd64-*
           path: dist\windows-amd64\
           merge-multiple: true
+      - name: Verify downloaded artifacts
+        run: |
+          $expected = @(
+            "dist\\windows-ollama-app-amd64.exe",
+            "dist\\windows-amd64\\ollama.exe"
+          )
+          foreach ($path in $expected) {
+            if (!(Test-Path -Path $path)) {
+              Write-Error "Missing downloaded artifact: $path"
+            }
+          }
+          $libDir = "dist\\windows-amd64\\lib\\ollama"
+          if (!(Test-Path -Path $libDir)) {
+            Write-Error "Missing downloaded library dir: $libDir"
+          }
       - run: |
           & .\scripts\build_windows.ps1 deps sign installer zip
         env:
