@@ -133,9 +133,22 @@ jobs:
           echo "$hipPath\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           echo "CC=$hipPath\bin\clang.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
           echo "CXX=$hipPath\bin\clang++.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "HIP_PATH=$hipPath" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "HIPCXX=$hipPath\bin\clang++.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "HIP_PLATFORM=amd" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "CMAKE_PREFIX_PATH=$hipPath" | Out-File -FilePath $env:GITHUB_ENV -Append
           $hipcc = Join-Path $hipPath "bin\clang++.exe"
           if (!(Test-Path $hipcc)) {
             Write-Error "ROCm clang++ not found at $hipcc"
+          }
+      - if: matrix.preset == 'ROCm 6'
+        name: Preflight HIP detection
+        run: |
+          cmake --preset "ROCm 6"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $cache = Get-Content -Path build\CMakeCache.txt -ErrorAction SilentlyContinue
+          if (!$cache -or ($cache -notmatch '^CMAKE_HIP_COMPILER:FILEPATH=')) {
+            Write-Error "CMake did not detect HIP compiler for ROCm preset."
           }
       - if: matrix.preset == 'CPU'
         run: |
