@@ -141,15 +141,6 @@ jobs:
           if (!(Test-Path $hipcc)) {
             Write-Error "ROCm clang++ not found at $hipcc"
           }
-      - if: matrix.preset == 'ROCm 6'
-        name: Preflight HIP detection
-        run: |
-          cmake --preset "ROCm 6"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $cache = Get-Content -Path build\CMakeCache.txt -ErrorAction SilentlyContinue
-          if (!$cache -or ($cache -notmatch '^CMAKE_HIP_COMPILER:FILEPATH=')) {
-            Write-Error "CMake did not detect HIP compiler for ROCm preset."
-          }
       - if: matrix.preset == 'CPU'
         run: |
           echo "CC=clang.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
@@ -166,6 +157,15 @@ jobs:
         with:
           path: ${{ github.workspace }}\.ccache
           key: ccache-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.preset }}
+      - if: matrix.preset == 'ROCm 6'
+        name: Preflight HIP detection
+        run: |
+          cmake --preset "ROCm 6"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $cache = Get-Content -Path build\CMakeCache.txt -ErrorAction SilentlyContinue
+          if (!$cache -or ($cache -notmatch '^CMAKE_HIP_COMPILER:FILEPATH=')) {
+            Write-Error "CMake did not detect HIP compiler for ROCm preset."
+          }
       - name: Build target "${{ matrix.preset }}"
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
