@@ -71,11 +71,6 @@ jobs:
             preset: 'CUDA 12'
             install: https://developer.download.nvidia.com/compute/cuda/12.8.0/local_installers/cuda_12.8.0_571.96_windows.exe
             cuda-version: '12.8'
-          - os: windows
-            arch: amd64
-            preset: 'ROCm 6'
-            install: https://download.amd.com/developer/eula/rocm-hub/AMD-Software-PRO-Edition-24.Q4-WinSvr2022-For-HIP.exe
-            rocm-version: '6.2'
     runs-on: ${{ (matrix.arch == 'arm64' && format('{0}-{1}', matrix.os, matrix.arch)) || (matrix.os == 'windows' && 'windows-2022') || (matrix.os == 'linux' && 'ubuntu-latest-m') || matrix.os }}
     environment: release
     env:
@@ -262,20 +257,35 @@ jobs:
           pattern: depends-windows-amd64-*
           path: dist\windows-amd64\
           merge-multiple: true
-      - name: Verify downloaded artifacts
+      - name: Validate packaging inputs
         run: |
-          $expected = @(
+          $errors = @()
+          $paths = @(
             "dist\\windows-ollama-app-amd64.exe",
-            "dist\\windows-amd64\\ollama.exe"
+            "dist\\windows-amd64\\ollama.exe",
+            "dist\\windows-amd64\\vc_redist.x64.exe"
           )
-          foreach ($path in $expected) {
+          foreach ($path in $paths) {
             if (!(Test-Path -Path $path)) {
-              Write-Error "Missing downloaded artifact: $path"
+              $errors += "Missing required file: $path"
             }
           }
           $libDir = "dist\\windows-amd64\\lib\\ollama"
           if (!(Test-Path -Path $libDir)) {
-            Write-Error "Missing downloaded library dir: $libDir"
+            $errors += "Missing required directory: $libDir"
+          } else {
+            $libFiles = Get-ChildItem -Path $libDir -Recurse -File -ErrorAction SilentlyContinue
+            if (!$libFiles) {
+              $errors += "Required directory is empty: $libDir"
+            }
+          }
+          $iscc = Get-Command "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe" -ErrorAction SilentlyContinue
+          if (!$iscc) {
+            $errors += "Inno Setup not found at C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe"
+          }
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_ }
+            exit 1
           }
       - run: |
           & .\scripts\build_windows.ps1 deps sign installer zip
