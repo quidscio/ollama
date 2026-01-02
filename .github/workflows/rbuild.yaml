@@ -257,13 +257,12 @@ jobs:
           pattern: depends-windows-amd64-*
           path: dist\windows-amd64\
           merge-multiple: true
-      - name: Validate packaging inputs
+      - name: Validate packaging inputs (pre-deps)
         run: |
           $errors = @()
           $paths = @(
             "dist\\windows-ollama-app-amd64.exe",
-            "dist\\windows-amd64\\ollama.exe",
-            "dist\\windows-amd64\\vc_redist.x64.exe"
+            "dist\\windows-amd64\\ollama.exe"
           )
           foreach ($path in $paths) {
             if (!(Test-Path -Path $path)) {
@@ -279,10 +278,6 @@ jobs:
               $errors += "Required directory is empty: $libDir"
             }
           }
-          $iscc = Get-Command "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe" -ErrorAction SilentlyContinue
-          if (!$iscc) {
-            $errors += "Inno Setup not found at C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe"
-          }
           if ($errors.Count -gt 0) {
             $errors | ForEach-Object { Write-Error $_ }
             exit 1
@@ -291,6 +286,25 @@ jobs:
           & .\scripts\build_windows.ps1 deps sign installer zip
         env:
           KEY_CONTAINER: ${{ vars.KEY_CONTAINER }}
+      - name: Validate packaging inputs (post-deps)
+        run: |
+          $errors = @()
+          $paths = @(
+            "dist\\windows-amd64\\vc_redist.x64.exe"
+          )
+          foreach ($path in $paths) {
+            if (!(Test-Path -Path $path)) {
+              $errors += "Missing required file: $path"
+            }
+          }
+          $iscc = Get-Command "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe" -ErrorAction SilentlyContinue
+          if (!$iscc) {
+            $errors += "Inno Setup not found at C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe"
+          }
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_ }
+            exit 1
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: dist-windows
